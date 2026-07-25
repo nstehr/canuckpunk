@@ -124,8 +124,6 @@ That produces a society:
 
 The punks and the Church are structural allies for opposite reasons. Both hold memory the engines cannot touch.
 
-**Open question:** is punk a starting archetype, or strictly a fate? "Strictly a fate" is defensible and probably better. Every player begins inside, and the outside is something you can only fall into.
-
 ## Death
 
 When your character dies, the institution appoints a replacement who inherits the office, the unresolved work, and the institutional reputation. Your file remains.
