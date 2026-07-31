@@ -1,0 +1,14 @@
+# SSH host keys generated at first run — private material, never commit.
+.ssh/
+
+# Compiled binary (`go build` drops it here).
+/canuckpunk
+
+# Go build and test artifacts.
+*.exe
+*.test
+*.out
+coverage.*
+
+# macOS
+.DS_Store

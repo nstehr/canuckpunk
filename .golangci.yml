@@ -1,0 +1,65 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    # Correctness & safety
+    - errcheck
+    - forcetypeassert
+    - nilerr
+    - copyloopvar
+    # Style & readability
+    - gocritic
+    - revive
+    - whitespace
+    - godot
+    - misspell
+    - predeclared
+    - errname
+    # Complexity
+    - gocyclo
+    - nestif
+    - funlen
+    - dupl
+    # Performance
+    - perfsprint
+    - unconvert
+    - goconst
+    # Resource leaks
+    - bodyclose
+    # Testing
+    - thelper
+    # Modernization
+    - intrange
+    - usestdlibvars
+    - exhaustive
+    - nolintlint
+
+  settings:
+    staticcheck:
+      # Include the QF (quickfix) checks, which are what gopls surfaces in
+      # the editor — e.g. QF1008 on embedded-field selectors.
+      checks:
+        - all
+    errcheck:
+      check-type-assertions: true
+    gocyclo:
+      min-complexity: 13
+    funlen:
+      lines: 120
+      statements: 80
+    dupl:
+      threshold: 150
+    exhaustive:
+      # paneCount is a count sentinel, not a real pane.
+      default-signifies-exhaustive: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofmt
