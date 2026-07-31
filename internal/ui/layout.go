@@ -21,6 +21,7 @@ var (
 	focusBorderColor = lipgloss.Color("62")
 	titleColor       = lipgloss.Color("110")
 	dimColor         = lipgloss.Color("244")
+	errColor         = lipgloss.Color("203")
 
 	paneStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -31,6 +32,7 @@ var (
 
 	titleStyle = lipgloss.NewStyle().Foreground(titleColor).Bold(true)
 	dimStyle   = lipgloss.NewStyle().Foreground(dimColor)
+	errStyle   = lipgloss.NewStyle().Foreground(errColor)
 
 	navItemStyle     = lipgloss.NewStyle()
 	navSelectedStyle = lipgloss.NewStyle().Foreground(focusBorderColor).Bold(true)

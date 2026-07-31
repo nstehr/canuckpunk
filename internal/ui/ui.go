@@ -2,6 +2,8 @@
 package ui
 
 import (
+	"bytes"
+	"context"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -11,6 +13,9 @@ import (
 	"charm.land/bubbles/v2/viewport"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/nstehr/canuckpunk/internal/session"
+	"github.com/nstehr/canuckpunk/internal/state"
 )
 
 type pane int
@@ -26,8 +31,50 @@ const (
 
 const commandPrompt = "> "
 
+type stateOutput struct {
+	text string
+	err  error
+}
+
+// Options is the per-session front-end configuration. The zero value renders,
+// so a client that knows nothing about its terminal still works.
+type Options struct {
+	Display Display
+}
+
+// Display only seeds the initial geometry; tea.WindowSizeMsg is authoritative
+// from the first render onward.
+type Display struct {
+	Term   string
+	Width  int
+	Height int
+}
+
+// Assumed when a client does not report a size.
+const (
+	defaultWidth  = 80
+	defaultHeight = 24
+)
+
+func (o Options) withDefaults() Options {
+	if o.Display.Width <= 0 {
+		o.Display.Width = defaultWidth
+	}
+
+	if o.Display.Height <= 0 {
+		o.Display.Height = defaultHeight
+	}
+
+	return o
+}
+
 type model struct {
-	term    string
+	// The session context cancels in-flight states when the client goes away.
+	ctx  context.Context
+	sess session.UserSession
+	sm   *state.Machine
+
+	display Display
 	profile string
 	width   int
 	height  int
@@ -42,16 +89,19 @@ type model struct {
 	input    textinput.Model
 	help     help.Model
 
-	history []string
+	// Everything the session has said, echoed input included.
+	transcript []string
+	commands   int
 }
 
 // New returns the root model for one session as a tea.Model, so callers do
 // not depend on the concrete type.
-func New(term string, width, height int) tea.Model {
-	return newModel(term, width, height)
+func New(ctx context.Context, us session.UserSession, sm *state.Machine, opts Options) tea.Model {
+	return newModel(ctx, us, sm, opts)
 }
 
-func newModel(term string, width, height int) model {
+func newModel(ctx context.Context, us session.UserSession, sm *state.Machine, opts Options) model {
+	opts = opts.withDefaults()
 	in := textinput.New()
 	in.Prompt = commandPrompt
 	in.Placeholder = "type a command…"
@@ -60,9 +110,12 @@ func newModel(term string, width, height int) model {
 	in.SetVirtualCursor(false)
 
 	m := model{
-		term:     term,
-		width:    width,
-		height:   height,
+		ctx:      ctx,
+		sess:     us,
+		sm:       sm,
+		display:  opts.Display,
+		width:    opts.Display.Width,
+		height:   opts.Display.Height,
 		bg:       "light",
 		focus:    paneCommand,
 		keys:     defaultKeyMap(),
@@ -79,9 +132,22 @@ func newModel(term string, width, height int) model {
 }
 
 func (m model) Init() tea.Cmd {
+	// Run the entry state so its output is up before the first key.
 	return tea.Batch(
 		tea.RequestBackgroundColor,
+		m.runState(""),
 	)
+}
+
+// States can block, so they run off the update loop.
+func (m model) runState(input string) tea.Cmd {
+	return func() tea.Msg {
+		var buf bytes.Buffer
+
+		err := m.sm.Next(m.ctx, input, &buf)
+
+		return stateOutput{text: buf.String(), err: err}
+	}
 }
 
 func (m *model) resize() {
@@ -107,12 +173,12 @@ func (m *model) resize() {
 func (m *model) refresh() {
 	m.main.SetContent(m.selectedBody())
 
-	if len(m.history) == 0 {
+	if len(m.transcript) == 0 {
 		m.activity.SetContent(dimStyle.Render("(activity)"))
 		return
 	}
 	atBottom := m.activity.AtBottom()
-	m.activity.SetContent(strings.Join(m.history, "\n"))
+	m.activity.SetContent(strings.Join(m.transcript, "\n"))
 	if atBottom {
 		m.activity.GotoBottom()
 	}
@@ -149,6 +215,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.refresh()
 
+	case stateOutput:
+		m.appendOutput(msg)
+		m.refresh()
+		m.activity.GotoBottom()
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -169,8 +240,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// otherwise quit mid-word.
 	if m.focus == paneCommand {
 		if key.Matches(msg, m.keys.Run) {
-			m.submit()
-			return m, nil
+			return m, m.submit()
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -198,15 +268,33 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *model) submit() {
+func (m *model) submit() tea.Cmd {
 	line := strings.TrimSpace(m.input.Value())
 	if line == "" {
-		return
+		return nil
 	}
-	m.history = append(m.history, line)
+
+	m.commands++
+	m.transcript = append(m.transcript, commandPrompt+line)
 	m.input.Reset()
 	m.refresh()
 	m.activity.GotoBottom() // a newly run command should always be visible
+
+	return m.runState(line)
+}
+
+func (m *model) appendOutput(o stateOutput) {
+	if o.err != nil {
+		m.transcript = append(m.transcript, errStyle.Render("! "+o.err.Error()))
+
+		return
+	}
+
+	for line := range strings.SplitSeq(strings.TrimRight(o.text, "\n"), "\n") {
+		if line != "" {
+			m.transcript = append(m.transcript, line)
+		}
+	}
 }
 
 func (m model) View() tea.View {

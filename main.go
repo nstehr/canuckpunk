@@ -18,6 +18,8 @@ import (
 	"charm.land/wish/v2/bubbletea"
 	"charm.land/wish/v2/logging"
 
+	"github.com/nstehr/canuckpunk/internal/session"
+	"github.com/nstehr/canuckpunk/internal/state"
 	"github.com/nstehr/canuckpunk/internal/ui"
 )
 
@@ -59,8 +61,30 @@ func main() {
 	}
 }
 
-// Each SSH session gets its own model, built from that session's PTY.
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	pty, _, _ := s.Pty()
-	return ui.New(pty.Term, pty.Window.Width, pty.Window.Height), []tea.ProgramOption{}
+	us := newUserSession(s)
+	ctx := session.NewContext(s.Context(), us)
+	sm := state.New(state.Welcome)
+	opts := ui.Options{
+		Display: ui.Display{
+			Term:   pty.Term,
+			Width:  pty.Window.Width,
+			Height: pty.Window.Height,
+		},
+	}
+
+	return ui.New(ctx, us, sm, opts), []tea.ProgramOption{}
+}
+
+// The only place that knows about ssh.Session; another front end needs just
+// its own adapter.
+func newUserSession(s ssh.Session) session.UserSession {
+	return session.UserSession{
+		ID:          s.Context().SessionID(),
+		Username:    s.User(),
+		Client:      session.ClientSSH,
+		RemoteAddr:  s.RemoteAddr().String(),
+		ConnectedAt: time.Now(),
+	}
 }

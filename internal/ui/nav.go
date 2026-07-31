@@ -46,13 +46,23 @@ func (navDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) 
 // gets wired in later.
 func navItems() []list.Item {
 	return []list.Item{
+		navItem{"Session", func(m model) string {
+			if len(m.transcript) == 0 {
+				return dimStyle.Render("connecting…")
+			}
+
+			return strings.Join(m.transcript, "\n")
+		}},
 		navItem{"Overview", func(m model) string {
 			rows := [][2]string{
-				{"Terminal", m.term},
+				{"User", m.sess.Name()},
+				{"Client", string(m.sess.Client)},
+				{"Remote", m.sess.RemoteAddr},
+				{"Terminal", m.display.Term},
 				{"Size", fmt.Sprintf("%d×%d", m.width, m.height)},
 				{"Background", m.bg},
 				{"Color profile", m.profile},
-				{"Commands run", strconv.Itoa(len(m.history))},
+				{"Commands run", strconv.Itoa(m.commands)},
 			}
 			var b strings.Builder
 			for _, r := range rows {
@@ -66,16 +76,6 @@ func navItems() []list.Item {
 		navItem{"Systems", placeholder("systems")},
 		navItem{"Crew", placeholder("crew")},
 		navItem{"Cargo", placeholder("cargo")},
-		navItem{"Log", func(m model) string {
-			if len(m.history) == 0 {
-				return dimStyle.Render("nothing logged yet")
-			}
-			lines := make([]string, len(m.history))
-			for i, h := range m.history {
-				lines[i] = fmt.Sprintf("%s %s", dimStyle.Render(fmt.Sprintf("%3d", i+1)), h)
-			}
-			return strings.Join(lines, "\n")
-		}},
 	}
 }
 

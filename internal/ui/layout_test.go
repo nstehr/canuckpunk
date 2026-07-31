@@ -7,7 +7,36 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/nstehr/canuckpunk/internal/session"
+	"github.com/nstehr/canuckpunk/internal/state"
 )
+
+const testUser = "nstehr"
+
+func newTestModel(t *testing.T, width, height int) model {
+	t.Helper()
+
+	us := session.UserSession{
+		Username:   testUser,
+		Client:     session.ClientSSH,
+		RemoteAddr: "10.0.0.1:2222",
+	}
+	opts := Options{Display: Display{Term: "xterm-256color", Width: width, Height: height}}
+	ctx := session.NewContext(t.Context(), us)
+
+	return newModel(ctx, us, state.New(state.Welcome), opts)
+}
+
+// Init runs the entry state asynchronously; drain it so the transcript is
+// populated before assertions.
+func withWelcome(t *testing.T, m model) model {
+	t.Helper()
+
+	msg := m.runState("")()
+
+	return send(t, m, msg)
+}
 
 func send(t *testing.T, m model, msgs ...tea.Msg) model {
 	t.Helper()
@@ -58,7 +87,7 @@ func plain(s string) string {
 }
 
 func TestLayoutWiring(t *testing.T) {
-	m := newModel("xterm-256color", 80, 24)
+	m := newTestModel(t, 80, 24)
 	m = send(t, m, tea.BackgroundColorMsg{}) // light
 
 	// Run a few commands so Activity has content.
@@ -67,9 +96,11 @@ func TestLayoutWiring(t *testing.T) {
 		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	}
 
-	// Tab to Context, move down twice -> "Crew".
+	// Tab to Context, then down to "Crew".
 	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // command -> context
-	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyDown})
+	for range 3 {
+		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
 
 	out := m.View().Content
 	w, h := dims(out)
@@ -92,25 +123,37 @@ func TestLayoutWiring(t *testing.T) {
 	}
 }
 
-func TestSelectLogSection(t *testing.T) {
-	m := newModel("xterm-256color", 80, 24)
+// The entry state's output must reach the screen without any key being
+// pressed.
+func TestWelcomeStateShowsUsername(t *testing.T) {
+	m := withWelcome(t, newTestModel(t, 80, 24))
+
+	out := plain(m.View().Content)
+	if !strings.Contains(out, "Welcome, "+testUser+".") {
+		t.Errorf("welcome output missing:\n%s", out)
+	}
+	if m.mainTitle() != "Session" {
+		t.Errorf("mainTitle = %q, want Session", m.mainTitle())
+	}
+}
+
+func TestSubmittedCommandIsEchoed(t *testing.T) {
+	m := withWelcome(t, newTestModel(t, 80, 24))
 	m = typeIn(t, m, "hello")
-	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}, tea.KeyPressMsg{Code: tea.KeyTab})
-	// Down to the last item, "Log".
-	for range 4 {
-		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	out := plain(m.View().Content)
+	if !strings.Contains(out, "> hello") {
+		t.Errorf("command not echoed to the transcript:\n%s", out)
 	}
-	if m.mainTitle() != "Log" {
-		t.Fatalf("mainTitle = %q", m.mainTitle())
-	}
-	if !strings.Contains(plain(m.View().Content), "1 hello") {
-		t.Error("Log section did not render the command history")
+	if m.commands != 1 {
+		t.Errorf("commands = %d, want 1", m.commands)
 	}
 }
 
 func TestSizes(t *testing.T) {
 	for _, d := range [][2]int{{80, 24}, {120, 40}, {60, 15}, {200, 60}} {
-		m := newModel("xterm", d[0], d[1])
+		m := newTestModel(t, d[0], d[1])
 		m = send(t, m, tea.WindowSizeMsg{Width: d[0], Height: d[1]})
 		w, h := dims(m.View().Content)
 		if w != d[0] || h != d[1] {
@@ -120,7 +163,7 @@ func TestSizes(t *testing.T) {
 }
 
 func TestQuitKeys(t *testing.T) {
-	m := newModel("xterm", 80, 24) // starts focused on Command
+	m := newTestModel(t, 80, 24) // starts focused on Command
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); cmd != nil {
 		t.Error("q quit while typing in the command pane")
 	}
@@ -138,7 +181,7 @@ func TestQuitKeys(t *testing.T) {
 }
 
 func TestActivityAutoScroll(t *testing.T) {
-	m := newModel("xterm", 80, 24)
+	m := newTestModel(t, 80, 24)
 	for i := range 20 {
 		m = typeIn(t, m, fmt.Sprintf("cmd-%02d", i))
 		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -156,17 +199,13 @@ func TestActivityAutoScroll(t *testing.T) {
 }
 
 func TestMainViewportScrolls(t *testing.T) {
-	m := newModel("xterm", 80, 24)
+	m := newTestModel(t, 80, 24)
 	for i := range 40 {
 		m = typeIn(t, m, fmt.Sprintf("line-%02d", i))
 		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	}
-	// Focus Context, pick "Log" (40 lines), then focus Main and scroll.
-	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	for range 4 {
-		m = send(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
-	}
-	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> Main
+	// "Session" is already selected and now holds 40 lines; focus Main.
+	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyTab})
 	top := m.main.View()
 	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if m.main.View() == top {
@@ -177,16 +216,37 @@ func TestMainViewportScrolls(t *testing.T) {
 	}
 }
 
-func TestOverviewShowsTerminalInfo(t *testing.T) {
-	m := newModel("xterm-256color", 80, 24)
-	out := m.View().Content
-	if !strings.Contains(out, "xterm-256color") || !strings.Contains(out, "80×24") {
-		t.Errorf("overview missing terminal info:\n%s", out)
+// A client that does not report a size must still render, rather than
+// sitting at 0x0 until the first resize message.
+func TestZeroOptionsRenderADefaultTerminal(t *testing.T) {
+	us := session.UserSession{Username: testUser}
+	ctx := session.NewContext(t.Context(), us)
+	m := newModel(ctx, us, state.New(state.Welcome), Options{})
+
+	w, h := dims(m.View().Content)
+	if w != defaultWidth || h != defaultHeight {
+		t.Errorf("rendered %dx%d, want %dx%d", w, h, defaultWidth, defaultHeight)
+	}
+}
+
+func TestOverviewShowsSessionInfo(t *testing.T) {
+	m := newTestModel(t, 80, 24)
+	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyDown})
+
+	if m.mainTitle() != "Overview" {
+		t.Fatalf("mainTitle = %q, want Overview", m.mainTitle())
+	}
+
+	out := plain(m.View().Content)
+	for _, want := range []string{testUser, "ssh", "10.0.0.1:2222", "xterm-256color", "80×24"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("overview missing %q:\n%s", want, out)
+		}
 	}
 }
 
 func TestTooSmall(t *testing.T) {
-	m := newModel("xterm", 10, 5)
+	m := newTestModel(t, 10, 5)
 	if got := m.View().Content; !strings.Contains(got, "too small") {
 		t.Errorf("got %q", got)
 	}
