@@ -1,8 +1,14 @@
 # SSH host keys generated at first run — private material, never commit.
 .ssh/
 
-# Compiled binary (`go build` drops it here).
+# Compiled binaries.
 /canuckpunk
+/bin/
+
+# Local SQLite databases.
+*.db
+*.db-wal
+*.db-shm
 
 # Go build and test artifacts.
 *.exe

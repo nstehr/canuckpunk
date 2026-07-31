@@ -1,8 +1,10 @@
-package ui
+package tui
 
 import (
+	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 )
 
@@ -66,7 +68,8 @@ func (geometry) bodyWidth(outerWidth int) int { return max(1, outerWidth-4) }
 // Less borders and the title line.
 func (geometry) bodyHeight(outerHeight int) int { return max(1, outerHeight-3) }
 
-// Screen position of the command pane's first body cell.
+// The border, padding, and title line all shift the body down and right; the
+// cursor has to be placed past them.
 func (g geometry) commandContentOrigin() (x, y int) {
 	return g.leftWidth + 2, headerHeight + g.middleHeight + 2
 }
@@ -90,13 +93,15 @@ func (m model) layout() string {
 		return "terminal too small"
 	}
 
-	header := m.renderPane(-1, m.width, headerHeight, "", m.headerContent())
+	header := m.renderPane(-1, m.width, headerHeight, "", "", m.headerContent())
 
-	context := m.renderPane(paneContext, g.leftWidth, g.middleHeight, "Context", m.nav.View())
-	main := m.renderPane(paneMain, g.rightWidth, g.middleHeight, m.mainTitle(), m.main.View())
+	context := m.renderPane(paneContext, g.leftWidth, g.middleHeight, "Context", "", m.nav.View())
+	main := m.renderPane(paneMain, g.rightWidth, g.middleHeight,
+		m.mainTitle(), scrollHint(m.main), m.main.View())
 
-	activity := m.renderPane(paneActivity, g.leftWidth, bottomHeight, "Activity", m.activity.View())
-	command := m.renderPane(paneCommand, g.rightWidth, bottomHeight, "Command", m.input.View())
+	activity := m.renderPane(paneActivity, g.leftWidth, bottomHeight,
+		"Activity", scrollHint(m.activity), m.activity.View())
+	command := m.renderPane(paneCommand, g.rightWidth, bottomHeight, "Command", "", m.input.View())
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -106,8 +111,9 @@ func (m model) layout() string {
 	)
 }
 
-// Pass a focus target of -1 for a pane that can never hold focus.
-func (m model) renderPane(p pane, outerWidth, outerHeight int, title, body string) string {
+// Pass a focus target of -1 for a pane that can never hold focus. status is
+// right-aligned on the title row; pass "" for none.
+func (m model) renderPane(p pane, outerWidth, outerHeight int, title, status, body string) string {
 	style := paneStyle
 	if p >= 0 && p == m.focus {
 		style = focusedPaneStyle
@@ -115,18 +121,51 @@ func (m model) renderPane(p pane, outerWidth, outerHeight int, title, body strin
 
 	content := body
 	if title != "" {
-		content = titleStyle.Render(title) + "\n" + body
+		content = m.titleRow(outerWidth, title, status) + "\n" + body
 	}
 
 	// In lipgloss v2 Width/Height include border and padding.
 	return style.Width(outerWidth).Height(outerHeight).Render(content)
 }
 
-func (m model) mainTitle() string {
-	if it, ok := m.nav.SelectedItem().(navItem); ok {
-		return it.title
+func (m model) titleRow(outerWidth int, title, status string) string {
+	head := titleStyle.Render(title)
+	if status == "" {
+		return head
 	}
-	return "Main View"
+
+	gap := geometry{}.bodyWidth(outerWidth) - lipgloss.Width(head) - lipgloss.Width(status)
+	if gap < 1 {
+		return head
+	}
+
+	return head + strings.Repeat(" ", gap) + status
+}
+
+// scrollHint shows where the reader is and which way there is more to read.
+// Empty when it all fits, so a pane that needs no scrolling stays quiet. The
+// arrow slots keep their width either way, so the percentage does not jitter
+// as it scrolls.
+func scrollHint(v viewport.Model) string {
+	if v.TotalLineCount() <= v.Height() {
+		return ""
+	}
+
+	up, down := " ", " "
+	if !v.AtTop() {
+		up = "▲"
+	}
+
+	if !v.AtBottom() {
+		down = "▼"
+	}
+
+	return dimStyle.Render(fmt.Sprintf("%s%s %3.0f%%", up, down, v.ScrollPercent()*100))
+}
+
+// The Main pane is the narrative surface; it is not named after the sidebar.
+func (m model) mainTitle() string {
+	return "Terminal"
 }
 
 func (m model) headerContent() string {

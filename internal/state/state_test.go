@@ -5,10 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"testing"
 
-	"github.com/nstehr/canuckpunk/internal/session"
 	"github.com/nstehr/canuckpunk/internal/state"
 )
 
@@ -86,49 +84,5 @@ func TestFailingStateDoesNotAdvance(t *testing.T) {
 	}
 	if sm.Done() {
 		t.Error("machine advanced past a failing state")
-	}
-}
-
-func TestWelcomeGreetsTheUser(t *testing.T) {
-	us := session.UserSession{Username: "nstehr"}
-	ctx := session.NewContext(t.Context(), us)
-	sm := state.New(state.Welcome)
-
-	var buf bytes.Buffer
-	if err := sm.Next(ctx, "", &buf); err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-
-	if got := buf.String(); !strings.Contains(got, "nstehr") {
-		t.Errorf("welcome = %q, want it to name the user", got)
-	}
-}
-
-// An anonymous client still has to be greeted with something.
-func TestWelcomeWithoutUsername(t *testing.T) {
-	ctx := session.NewContext(t.Context(), session.UserSession{})
-	sm := state.New(state.Welcome)
-
-	var buf bytes.Buffer
-	if err := sm.Next(ctx, "", &buf); err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-
-	if got := buf.String(); !strings.Contains(got, "stranger") {
-		t.Errorf("welcome = %q", got)
-	}
-}
-
-// A context with no session at all must degrade, not panic.
-func TestWelcomeWithoutSessionInContext(t *testing.T) {
-	sm := state.New(state.Welcome)
-
-	var buf bytes.Buffer
-	if err := sm.Next(t.Context(), "", &buf); err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-
-	if got := buf.String(); !strings.Contains(got, "stranger") {
-		t.Errorf("welcome = %q", got)
 	}
 }

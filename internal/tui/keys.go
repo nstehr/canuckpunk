@@ -1,4 +1,4 @@
-package ui
+package tui
 
 import (
 	"charm.land/bubbles/v2/key"
@@ -16,7 +16,13 @@ type keyMap struct {
 	// help can describe them.
 	Select key.Binding
 	Scroll key.Binding
+	Choose key.Binding
 	Run    key.Binding
+
+	// Help and Leave hold typed words rather than keystrokes. Keeping them in
+	// bindings means the accepted words and the help text cannot drift.
+	Help  key.Binding
+	Leave key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -47,9 +53,21 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("up", "down"),
 			key.WithHelp("↑/↓", "scroll"),
 		),
+		Choose: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "choose"),
+		),
 		Run: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "run"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("help", "?"),
+			key.WithHelp("help", "commands"),
+		),
+		Leave: key.NewBinding(
+			key.WithKeys("quit", "exit"),
+			key.WithHelp("quit/exit", "leave"),
 		),
 	}
 }
@@ -63,11 +81,11 @@ var _ interface {
 func (m model) focusHelp() []key.Binding {
 	switch m.focus {
 	case paneContext:
-		return []key.Binding{m.keys.Select}
+		return []key.Binding{m.keys.Select, m.keys.Choose}
 	case paneMain, paneActivity:
 		return []key.Binding{m.keys.Scroll}
 	case paneCommand:
-		return []key.Binding{m.keys.Run}
+		return []key.Binding{m.keys.Run, m.keys.Help, m.keys.Leave}
 	default: // paneCount is a sentinel.
 		return nil
 	}

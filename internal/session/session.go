@@ -17,11 +17,23 @@ const (
 // belongs to the front end; the ssh.Session, connection, and PTY stay with
 // the adapter that built this.
 type UserSession struct {
-	ID          string
-	Username    string
-	Client      Client
+	ID       string
+	Username string
+	Client   Client
+
+	Credential Credential
+
 	RemoteAddr  string
 	ConnectedAt time.Time
+}
+
+// Credential is what the user proved to get here. For SSH that is a key; for
+// another front end it might be an identity provider subject. Accounts are
+// looked up by ID; Material is whatever was presented, kept so linking an
+// account can record it.
+type Credential struct {
+	ID       string
+	Material string
 }
 
 // Name is the username, or "stranger" when the client did not supply one.
