@@ -24,4 +24,4 @@ Content can be modelled externally as markdown files and will be rendered approp
 - Table-like live status:	Bubbles/Lip Gloss
 - Interactive choice:	Bubble Tea component
 
-The static content is not packaged into the binary. This allows to update the content without having to update the core server.
+The static content is packaged into the binary, but can be overwritten with local files. This allows to update the content without having to update the core server.
