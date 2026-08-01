@@ -31,17 +31,29 @@ import (
 )
 
 const (
-	host           = "localhost"
-	port           = "1867"
+	defaultHost    = "localhost"
+	defaultPort    = "1867"
 	defaultDBPath  = "canuckpunk.db"
 	shutdownWindow = 30 * time.Second
 )
 
-// Env overrides, so prose and data can live outside the working directory.
+// Env overrides, so prose and data can live outside the working directory, and
+// a deployment can bind an address other than the loopback the dev loop wants.
 const (
 	envDBPath     = "CANUCKPUNK_DB"
 	envNarratives = "CANUCKPUNK_NARRATIVES"
+	envHost       = "CANUCKPUNK_HOST"
+	envPort       = "CANUCKPUNK_PORT"
 )
+
+// envOr reads name, falling back to def when it is unset or empty.
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+
+	return def
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -64,6 +76,9 @@ func run() error {
 	}
 
 	users := user.NewService(database)
+
+	host := envOr(envHost, defaultHost)
+	port := envOr(envPort, defaultPort)
 
 	s, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(host, port)),
@@ -118,10 +133,7 @@ func run() error {
 }
 
 func openDatabase(ctx context.Context) (*sql.DB, error) {
-	path := os.Getenv(envDBPath)
-	if path == "" {
-		path = defaultDBPath
-	}
+	path := envOr(envDBPath, defaultDBPath)
 
 	database, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -146,10 +158,7 @@ func openDatabase(ctx context.Context) (*sql.DB, error) {
 // Prose is read from disk at request time, so a missing file would otherwise
 // only surface when a player reached that screen.
 func openNarratives() (*narratives.Store, error) {
-	dir := os.Getenv(envNarratives)
-	if dir == "" {
-		dir = narratives.DefaultDir
-	}
+	dir := envOr(envNarratives, narratives.DefaultDir)
 
 	prose := narratives.Open(dir)
 	if err := prose.Check(onboarding.RequiredNarratives()...); err != nil {

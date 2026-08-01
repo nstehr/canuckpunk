@@ -1,0 +1,54 @@
+[Unit]
+Description=canuckpunk SSH terminal game
+Documentation=https://github.com/nstehr/canuckpunk
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=canuckpunk
+Group=canuckpunk
+
+# StateDirectory creates and owns /var/lib/canuckpunk. The server writes its
+# SSH host key and SQLite database relative to the working directory, so the
+# two have to be the same place.
+StateDirectory=canuckpunk
+WorkingDirectory=/var/lib/canuckpunk
+
+Environment=CANUCKPUNK_HOST=0.0.0.0
+Environment=CANUCKPUNK_PORT=1867
+Environment=CANUCKPUNK_DB=/var/lib/canuckpunk/canuckpunk.db
+Environment=CANUCKPUNK_NARRATIVES=/var/lib/canuckpunk/narratives
+
+ExecStart=/usr/local/bin/canuckpunk
+
+Restart=on-failure
+RestartSec=5s
+
+# The server's own shutdown window is 30s; give it room to drain sessions
+# before systemd escalates to SIGKILL.
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+
+# Hardening. The service needs nothing outside its state directory.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

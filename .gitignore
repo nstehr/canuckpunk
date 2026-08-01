@@ -1,6 +1,10 @@
 # SSH host keys generated at first run — private material, never commit.
 .ssh/
 
+# Local environment: deployment host and key paths. See .env.example.
+.env
+.env.local
+
 # Compiled binaries.
 /canuckpunk
 /bin/
