@@ -9,8 +9,9 @@ type Client string
 
 // Known clients.
 const (
-	ClientSSH   Client = "ssh"
-	ClientLocal Client = "local"
+	ClientSSH     Client = "ssh"
+	ClientDiscord Client = "discord"
+	ClientLocal   Client = "local"
 )
 
 // UserSession is identity and provenance only. How the user is rendered

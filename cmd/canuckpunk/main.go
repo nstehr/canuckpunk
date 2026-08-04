@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -22,6 +23,9 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	_ "modernc.org/sqlite"
 
+	"golang.org/x/sync/errgroup"
+
+	"github.com/nstehr/canuckpunk/internal/discord"
 	"github.com/nstehr/canuckpunk/internal/onboarding"
 	"github.com/nstehr/canuckpunk/internal/session"
 	"github.com/nstehr/canuckpunk/internal/state"
@@ -44,6 +48,10 @@ const (
 	envNarratives = "CANUCKPUNK_NARRATIVES"
 	envHost       = "CANUCKPUNK_HOST"
 	envPort       = "CANUCKPUNK_PORT"
+
+	envDiscordToken   = "DISCORD_TOKEN"
+	envDiscordGuild   = "DISCORD_GUILD_ID"
+	envDiscordChannel = "DISCORD_START_CHANNEL_ID"
 )
 
 // envOr reads name, falling back to def when it is unset or empty.
@@ -56,6 +64,21 @@ func envOr(name, def string) string {
 }
 
 func main() {
+	// Posting the lobby is a one-off against a live guild, not something the
+	// server should do on every start.
+	postLobby := flag.Bool("post-lobby", false,
+		"post the Begin message to the Discord start channel and exit")
+	flag.Parse()
+
+	if *postLobby {
+		if err := runPostLobby(); err != nil {
+			log.Error("could not post the lobby message", "error", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
 	if err := run(); err != nil {
 		log.Error("canuckpunk failed to start", "error", err)
 		os.Exit(1)
@@ -77,6 +100,69 @@ func run() error {
 
 	users := user.NewService(database)
 
+	// One process, several front ends: each gets a goroutine, and the first
+	// failure cancels the rest.
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error { return serveSSH(ctx, users, prose) })
+
+	// The Discord front end is optional: without a token the game is
+	// SSH-only, which is what local development and CI want.
+	if bot, err := discordBot(users, prose); err != nil {
+		return err
+	} else if bot != nil {
+		g.Go(func() error { return bot.Run(ctx) })
+	}
+
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+
+	return nil
+}
+
+func runPostLobby() error {
+	bot, err := discordBot(nil, nil)
+	if err != nil {
+		return err
+	}
+
+	if bot == nil {
+		return errors.New("no discord token configured")
+	}
+
+	return bot.PostLobby(context.Background())
+}
+
+// discordBot returns nil when no token is configured.
+func discordBot(users *user.Service, prose onboarding.Narratives) (*discord.Bot, error) {
+	token := os.Getenv(envDiscordToken)
+	if token == "" {
+		log.Info("Discord client disabled", "reason", envDiscordToken+" is not set")
+
+		return nil, nil
+	}
+
+	bot, err := discord.New(discord.Config{
+		Token:          token,
+		GuildID:        os.Getenv(envDiscordGuild),
+		StartChannelID: os.Getenv(envDiscordChannel),
+		Accounts:       users,
+		Prose:          prose,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discord: %w", err)
+	}
+
+	return bot, nil
+}
+
+// serveSSH runs the terminal front end until ctx is cancelled.
+func serveSSH(ctx context.Context, users *user.Service, prose onboarding.Narratives) error {
 	host := envOr(envHost, defaultHost)
 	port := envOr(envPort, defaultPort)
 
@@ -96,17 +182,15 @@ func run() error {
 		return fmt.Errorf("create server: %w", err)
 	}
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	log.Info("Starting SSH server", "host", host, "port", port)
-	// A listen failure has to reach the caller, so it travels back here rather
-	// than only being logged from the goroutine.
+
+	// A listen failure has to reach the caller, so it travels back rather than
+	// only being logged from the goroutine.
 	serveErr := make(chan error, 1)
 
 	go func() {
 		if err := s.ListenAndServe(); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
 			serveErr <- fmt.Errorf("serve: %w", err)
-			done <- nil
 
 			return
 		}
@@ -114,31 +198,44 @@ func run() error {
 		serveErr <- nil
 	}()
 
-	<-done
-	log.Info("Stopping SSH server")
-
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownWindow)
-	defer cancel()
-
-	if err := s.Shutdown(ctx); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
-		return fmt.Errorf("stop server: %w", err)
-	}
-
 	select {
 	case err := <-serveErr:
 		return err
-	default:
-		return nil
+	case <-ctx.Done():
 	}
+
+	log.Info("Stopping SSH server")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownWindow)
+	defer cancel()
+
+	if err := s.Shutdown(shutdownCtx); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+		return fmt.Errorf("stop server: %w", err)
+	}
+
+	return nil
 }
 
 func openDatabase(ctx context.Context) (*sql.DB, error) {
 	path := envOr(envDBPath, defaultDBPath)
 
-	database, err := sql.Open("sqlite", path)
+	// WAL so a reader never blocks the writer, busy_timeout so contention waits
+	// instead of failing. Both are per-connection, so they ride on the DSN and
+	// apply to every connection the pool opens.
+	dsn := "file:" + path +
+		"?_pragma=journal_mode(WAL)" +
+		"&_pragma=busy_timeout(5000)" +
+		"&_pragma=synchronous(NORMAL)"
+
+	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database %s: %w", path, err)
 	}
+
+	// SQLite takes one writer at a time. Serialising here is cheaper than
+	// discovering it as SQLITE_BUSY under load, and at this size the cost of a
+	// single connection is nil.
+	database.SetMaxOpenConns(1)
 
 	if err := database.Ping(); err != nil {
 		_ = database.Close()
