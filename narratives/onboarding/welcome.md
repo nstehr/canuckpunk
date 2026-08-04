@@ -2,32 +2,24 @@
 
 > People die. Institutions remember.
 
-An alternate Canada, three hundred years past the point where anyone could
-have stopped it.
+Welcome to Canada | Bienvenue au Canada 🇨🇦
 
-The Hudson's Bay Company never wound down. The railways never stopped
-expanding. The telegraph never died — it survived as the protocol everything
-else was built on top of. Imagine a country whose future was designed by civil
-engineers instead of financiers, and then left running, unattended, for three
-centuries.
+This isn't the Canada of your parents or their prime ministers. Imagine a Canada over 300 years 
+in the future where the institutions from the birth of the nation never waned. Instead, they continued
+to grow and grow.
 
-The institutions that laid the rails, kept the ledgers, and drew the lines are
-all still here. They never stopped accumulating responsibility, and nobody
-ever built a way to hand it back.
+The Hudson's Bay Company never disappeared, the railways grew and evolved, and the telegraph thrived; not 
+as the technology, but the _protocol_.
+
+These institutions never stopped growing. Their responsibility grew, their power amassed, and no one stopped them.
 
 ---
 
-You will not play a chosen hero. You will play a professional — a surveyor, an
-auditor, a rail inspector, a telegraph engineer — with a job, a jurisdiction,
-and standing to file a correction.
+Your role will be that of a professional. You will join the Company, or work as a railway bureaucrat, or any potential
+position across these organizations. 
 
-The fights here are not over territory. They are over **memory**: whose record
-is authoritative when two of them disagree. Machine memory is instant, total,
-and quietly amendable. Paper memory is slow and hard to alter. Human memory
-dies with the person holding it.
-
-Change the record and you change the world. That is the whole game.
+Your *work* will be to settle _memory_. Each institution has it's own memory on the state of the country. Contradictions,
+omissions, deliberate sabotage, and even outright lies have been recorded in the memory of these institutions. Your job is to reconcile these memories, and decide what memories become official. Armed with your files and human memory you must set forth across this great nation.
 
 ---
-
 Choose a file to begin.
