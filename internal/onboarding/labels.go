@@ -31,17 +31,29 @@ const (
 )
 
 // The prose this flow reads. Named once so the startup check and the states
-// cannot disagree about what has to exist.
+// cannot disagree about what has to exist. Exported because the words inside
+// belong to whoever is writing them: anything that needs to know what a screen
+// says should read the file, not hardcode the text.
 const (
-	narrativeWelcome     = "onboarding/welcome.md"
-	narrativeOrientation = "onboarding/orientation.md"
+	NarrativeWelcome     = "onboarding/welcome.md"
+	NarrativeOrientation = "onboarding/orientation.md"
 )
 
 // RequiredNarratives lists the prose this flow cannot run without, for a
 // caller that wants to verify it before serving.
 func RequiredNarratives() []string {
-	return []string{narrativeWelcome, narrativeOrientation}
+	return []string{NarrativeWelcome, NarrativeOrientation}
 }
+
+// What each state is waiting for, so a front end can say so at its input.
+const (
+	HintName  = "name"
+	HintEmail = "email"
+)
+
+// SkipEmail is what a player types to decline the optional address. Enter on
+// an empty line cannot mean this: a blank submission never reaches a state.
+const SkipEmail = "skip"
 
 // ContinueID is the selector for resuming a particular account.
 func ContinueID(userID int64) string {

@@ -15,10 +15,29 @@ import (
 // ErrUsernameTaken means the name is already registered.
 var ErrUsernameTaken = errors.New("username already taken")
 
-// User is a player account.
+// User is a player account. Email is optional and blank when unset.
 type User struct {
 	ID       int64
 	Username string
+	Email    string
+}
+
+// NewAccount is what it takes to register one. Email may be blank; the rest
+// may not.
+type NewAccount struct {
+	Username string
+	Email    string
+
+	// CredentialID is what the client proved, and what the account is found
+	// by afterwards. Material is kept as presented.
+	CredentialID string
+	Material     string
+}
+
+// NormaliseEmail lowercases and trims, so an address entered as "A@B.CA"
+// finds the account created with "a@b.ca". Storage keeps this form.
+func NormaliseEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // Service reads and writes player accounts.
@@ -44,17 +63,41 @@ func (s *Service) ForCredential(ctx context.Context, credentialID string) ([]Use
 		return nil, fmt.Errorf("list users by fingerprint: %w", err)
 	}
 
-	users := make([]User, 0, len(rows))
-	for _, r := range rows {
-		users = append(users, User{ID: r.ID, Username: r.Username})
-	}
-
-	return users, nil
+	return toUsers(rows), nil
 }
 
-// Create registers a username and links it to the credential in one
+// ForEmail returns every account registered under an address. It is how a
+// client that cannot present the original credential — a web or chat sign-in —
+// finds the accounts a person already holds.
+//
+// An address here is a claim, not a proof. Verify ownership before letting it
+// grant access to anything it returns.
+func (s *Service) ForEmail(ctx context.Context, email string) ([]User, error) {
+	email = NormaliseEmail(email)
+	if email == "" {
+		return nil, nil
+	}
+
+	rows, err := s.queries.ListUsersByEmail(ctx, sql.NullString{String: email, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("list users by email: %w", err)
+	}
+
+	return toUsers(rows), nil
+}
+
+func toUsers(rows []db.User) []User {
+	users := make([]User, 0, len(rows))
+	for _, r := range rows {
+		users = append(users, User{ID: r.ID, Username: r.Username, Email: r.Email.String})
+	}
+
+	return users
+}
+
+// Create registers an account and links it to the credential in one
 // transaction, so an account can never exist that nobody can sign in to.
-func (s *Service) Create(ctx context.Context, username, credentialID, material string) (User, error) {
+func (s *Service) Create(ctx context.Context, account NewAccount) (User, error) {
 	tx, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
 		return User{}, fmt.Errorf("begin: %w", err)
@@ -64,7 +107,12 @@ func (s *Service) Create(ctx context.Context, username, credentialID, material s
 
 	q := s.queries.WithTx(tx)
 
-	row, err := q.CreateUser(ctx, username)
+	email := NormaliseEmail(account.Email)
+
+	row, err := q.CreateUser(ctx, db.CreateUserParams{
+		Username: account.Username,
+		Email:    sql.NullString{String: email, Valid: email != ""},
+	})
 	if err != nil {
 		if isUniqueViolation(err) {
 			return User{}, ErrUsernameTaken
@@ -75,8 +123,8 @@ func (s *Service) Create(ctx context.Context, username, credentialID, material s
 
 	err = q.LinkKeyToUser(ctx, db.LinkKeyToUserParams{
 		UserID:      row.ID,
-		Fingerprint: credentialID,
-		PublicKey:   material,
+		Fingerprint: account.CredentialID,
+		PublicKey:   account.Material,
 	})
 	if err != nil {
 		return User{}, fmt.Errorf("link key: %w", err)
@@ -86,7 +134,7 @@ func (s *Service) Create(ctx context.Context, username, credentialID, material s
 		return User{}, fmt.Errorf("commit: %w", err)
 	}
 
-	return User{ID: row.ID, Username: row.Username}, nil
+	return User{ID: row.ID, Username: row.Username, Email: email}, nil
 }
 
 // LinkCredential attaches another credential to an existing account, so a

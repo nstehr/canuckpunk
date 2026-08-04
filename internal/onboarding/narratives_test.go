@@ -35,7 +35,7 @@ func TestEveryNarrativeReadIsDeclared(t *testing.T) {
 	ctx := ctxWithKey(t)
 
 	var buf bytes.Buffer
-	for _, input := range []string{"", onboarding.LabelCreateUser, testSurveyor} {
+	for _, input := range []string{"", onboarding.LabelCreateUser, testSurveyor, onboarding.SkipEmail} {
 		if err := sm.Next(ctx, input, &buf); err != nil {
 			t.Fatalf("Next(%q): %v", input, err)
 		}

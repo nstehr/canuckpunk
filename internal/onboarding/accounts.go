@@ -23,7 +23,7 @@ type Narratives interface {
 // the caller can substitute a fake.
 type Accounts interface {
 	ForCredential(ctx context.Context, credentialID string) ([]user.User, error)
-	Create(ctx context.Context, username, credentialID, material string) (user.User, error)
+	Create(ctx context.Context, account user.NewAccount) (user.User, error)
 }
 
 // Chooser builds the options offered at the start of a session.

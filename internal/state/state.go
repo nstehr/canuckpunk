@@ -26,6 +26,23 @@ type (
 	}
 )
 
+// Hinter is an optional capability of the writer a state is given. A state
+// that wants a particular kind of input can say so without Fn growing a return
+// value, and a front end that cares can show it — a prompt, a form field, a
+// keyboard type. Writers that do not implement it simply miss the hint.
+type Hinter interface {
+	Hint(kind string)
+}
+
+// Hint tells the front end what the state is waiting for. It is per turn: a
+// state that says nothing leaves the front end with no hint, rather than the
+// last one.
+func Hint(out io.Writer, kind string) {
+	if h, ok := out.(Hinter); ok {
+		h.Hint(kind)
+	}
+}
+
 // New returns a Machine that begins at start.
 func New(start Fn) *Machine {
 	return &Machine{currentState: start}

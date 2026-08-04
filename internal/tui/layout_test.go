@@ -26,7 +26,7 @@ const (
 // fakeAccounts stands in for the database.
 type fakeAccounts struct {
 	users   []user.User
-	created []string
+	created []user.NewAccount
 	err     error
 }
 
@@ -34,9 +34,9 @@ func (f *fakeAccounts) ForCredential(context.Context, string) ([]user.User, erro
 	return f.users, f.err
 }
 
-func (f *fakeAccounts) Create(_ context.Context, username, _, _ string) (user.User, error) {
-	f.created = append(f.created, username)
-	u := user.User{ID: int64(len(f.users) + 1), Username: username}
+func (f *fakeAccounts) Create(_ context.Context, a user.NewAccount) (user.User, error) {
+	f.created = append(f.created, a)
+	u := user.User{ID: int64(len(f.users) + 1), Username: a.Username, Email: a.Email}
 	f.users = append(f.users, u)
 
 	return u, nil
@@ -154,6 +154,22 @@ func plain(s string) string {
 
 func labels(choices menu.Set) []string { return choices.Labels() }
 
+// narrative returns the prose a screen is supposed to show. Tests compare
+// against this rather than quoting the words, so rewriting the game's prose
+// never fails a test about the flow.
+func narrative(t *testing.T, name string) string {
+	t.Helper()
+
+	text, err := narratives.Embedded().Read(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+
+	return strings.TrimSpace(text)
+}
+
+func shown(m model) string { return strings.Join(m.content, "\n") }
+
 func TestUnknownKeyIsOfferedANewUser(t *testing.T) {
 	m := boot(t, newTestModel(t, 100, 30, &fakeAccounts{}))
 
@@ -166,7 +182,7 @@ func TestUnknownKeyIsOfferedANewUser(t *testing.T) {
 		t.Errorf("context pane missing the choice:\n%s", out)
 	}
 
-	if !strings.Contains(strings.Join(m.content, "\n"), "Choose a file to begin") {
+	if !strings.Contains(shown(m), narrative(t, onboarding.NarrativeWelcome)) {
 		t.Error("welcome greeting missing")
 	}
 }
@@ -203,13 +219,12 @@ func TestFirstScreenIsTheSameForEveryone(t *testing.T) {
 		t.Errorf("greeting differs:\nunknown: %q\nknown:   %q", unknown.content, known.content)
 	}
 
-	joined := strings.Join(unknown.content, "\n")
-	if !strings.Contains(joined, "Canuckpunk") || !strings.Contains(joined, "memory") {
-		t.Errorf("greeting is not the generic game intro:\n%s", joined)
+	if !strings.Contains(shown(unknown), narrative(t, onboarding.NarrativeWelcome)) {
+		t.Errorf("greeting is not the welcome narrative:\n%s", shown(unknown))
 	}
 
 	// Orientation is earned by choosing, not shown on arrival.
-	if strings.Contains(joined, "Assistant Surveyor") {
+	if strings.Contains(shown(unknown), narrative(t, onboarding.NarrativeOrientation)) {
 		t.Error("orientation shown before any choice was made")
 	}
 }
@@ -260,19 +275,16 @@ func TestBothPathsReachOrientation(t *testing.T) {
 	newPlayer := boot(t, newTestModel(t, 100, 40, &fakeAccounts{}))
 	newPlayer = enter(t, typeIn(t, newPlayer, onboarding.LabelCreateUser))
 	newPlayer = enter(t, typeIn(t, newPlayer, testSurveyor))
+	newPlayer = enter(t, typeIn(t, newPlayer, onboarding.SkipEmail))
 
 	accounts := &fakeAccounts{users: []user.User{{ID: 1, Username: testSurveyor}}}
 	returning := boot(t, newTestModel(t, 100, 40, accounts))
 	returning = enter(t, typeIn(t, returning, onboarding.ContinueLabel(testSurveyor)))
 
+	want := narrative(t, onboarding.NarrativeOrientation)
 	for name, m := range map[string]model{"new": newPlayer, "returning": returning} {
-		joined := strings.Join(m.content, "\n")
-		if !strings.Contains(joined, "Assistant Surveyor") {
-			t.Errorf("%s: orientation missing:\n%s", name, joined)
-		}
-
-		if !strings.Contains(joined, "2367") {
-			t.Errorf("%s: orientation does not date the setting", name)
+		if !strings.Contains(shown(m), want) {
+			t.Errorf("%s: orientation not shown:\n%s", name, shown(m))
 		}
 	}
 }
@@ -282,13 +294,123 @@ func TestCreatingAUserRecordsTheName(t *testing.T) {
 	m := boot(t, newTestModel(t, 100, 40, accounts))
 	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
 	m = enter(t, typeIn(t, m, testSurveyor))
+	m = enter(t, typeIn(t, m, onboarding.SkipEmail))
 
-	if len(accounts.created) != 1 || accounts.created[0] != testSurveyor {
+	if len(accounts.created) != 1 || accounts.created[0].Username != testSurveyor {
 		t.Errorf("created = %v, want [%s]", accounts.created, testSurveyor)
 	}
 
 	if !m.sm.Done() {
 		t.Error("onboarding did not finish after the account was created")
+	}
+}
+
+// The prompt says what the state is waiting for. It has to arrive on the same
+// turn the question does, and clear when nothing is being asked.
+func TestPromptShowsWhatIsExpected(t *testing.T) {
+	m := boot(t, newTestModel(t, 100, 30, &fakeAccounts{}))
+
+	if got := plain(m.input.Prompt); got != commandPrompt {
+		t.Errorf("menu prompt = %q, want %q", got, commandPrompt)
+	}
+
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+	if got := plain(m.input.Prompt); got != "("+onboarding.HintName+") "+commandPrompt {
+		t.Errorf("prompt = %q, want the name hint — it must not lag a turn", got)
+	}
+
+	m = enter(t, typeIn(t, m, testSurveyor))
+	if got := plain(m.input.Prompt); got != "("+onboarding.HintEmail+") "+commandPrompt {
+		t.Errorf("prompt = %q, want the email hint", got)
+	}
+
+	// A rejected answer leaves the player on the same question.
+	m = enter(t, typeIn(t, m, "not an address"))
+	if got := plain(m.input.Prompt); got != "("+onboarding.HintEmail+") "+commandPrompt {
+		t.Errorf("prompt = %q, want the email hint to persist through a retry", got)
+	}
+
+	m = enter(t, typeIn(t, m, onboarding.SkipEmail))
+	if got := plain(m.input.Prompt); got != commandPrompt {
+		t.Errorf("prompt = %q, want it cleared once nothing is being asked", got)
+	}
+}
+
+// The hint changes the prompt width, so the input has to be resized with it.
+func TestPromptWidthTracksTheHint(t *testing.T) {
+	m := boot(t, newTestModel(t, 100, 30, &fakeAccounts{}))
+	g := m.geometry()
+
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+
+	if got, want := m.input.Width(), g.commandInputWidth(m.input.Prompt); got != want {
+		t.Errorf("input width = %d, want %d — the line would run past the pane", got, want)
+	}
+}
+
+func TestOptionalEmailIsRecorded(t *testing.T) {
+	accounts := &fakeAccounts{}
+	m := boot(t, newTestModel(t, 100, 30, accounts))
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+	m = enter(t, typeIn(t, m, testSurveyor))
+
+	if joined := strings.Join(m.content, "\n"); !strings.Contains(joined, "address") {
+		t.Fatalf("no address prompt:\n%s", joined)
+	}
+
+	m = enter(t, typeIn(t, m, "Player@Example.CA"))
+
+	if len(accounts.created) != 1 {
+		t.Fatalf("created %d accounts, want 1", len(accounts.created))
+	}
+
+	if got := accounts.created[0].Email; got != "Player@Example.CA" {
+		t.Errorf("email = %q, want it passed through for the service to normalise", got)
+	}
+
+	if !strings.Contains(shown(m), narrative(t, onboarding.NarrativeOrientation)) {
+		t.Error("did not reach orientation after giving an address")
+	}
+}
+
+func TestEmailCanBeSkipped(t *testing.T) {
+	accounts := &fakeAccounts{}
+	m := boot(t, newTestModel(t, 100, 30, accounts))
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+	m = enter(t, typeIn(t, m, testSurveyor))
+	m = enter(t, typeIn(t, m, "SKIP"))
+
+	if len(accounts.created) != 1 || accounts.created[0].Email != "" {
+		t.Errorf("created = %+v, want an account with no email", accounts.created)
+	}
+
+	if !m.sm.Done() {
+		t.Error("skipping did not finish onboarding")
+	}
+}
+
+// A typo would hand this person's characters to whoever owns the address that
+// was actually typed, so a bad one must not be recorded.
+func TestBadEmailIsRejectedAndRetryable(t *testing.T) {
+	accounts := &fakeAccounts{}
+	m := boot(t, newTestModel(t, 100, 30, accounts))
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+	m = enter(t, typeIn(t, m, testSurveyor))
+	m = enter(t, typeIn(t, m, "not an address"))
+
+	if len(accounts.created) != 0 {
+		t.Fatalf("account created with a bad address: %+v", accounts.created)
+	}
+
+	if joined := strings.Join(m.content, "\n"); !strings.Contains(joined, "not an address") {
+		t.Errorf("no rejection notice:\n%s", joined)
+	}
+
+	// Still here, and a good address finishes the job.
+	m = enter(t, typeIn(t, m, "player@example.ca"))
+
+	if len(accounts.created) != 1 || accounts.created[0].Email != "player@example.ca" {
+		t.Errorf("retry did not take: %+v", accounts.created)
 	}
 }
 
@@ -335,6 +457,7 @@ func TestNewPassageOpensAtItsTop(t *testing.T) {
 
 	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
 	m = enter(t, typeIn(t, m, testSurveyor))
+	m = enter(t, typeIn(t, m, onboarding.SkipEmail))
 
 	if len(m.offsets) != len(m.content) {
 		t.Fatalf("%d offsets for %d passages", len(m.offsets), len(m.content))
@@ -483,8 +606,9 @@ func TestQuitDoesNotMatchLongerWords(t *testing.T) {
 	m := boot(t, newTestModel(t, 100, 20, accounts))
 	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
 	m = enter(t, typeIn(t, m, "quitter"))
+	m = enter(t, typeIn(t, m, onboarding.SkipEmail))
 
-	if len(accounts.created) != 1 || accounts.created[0] != "quitter" {
+	if len(accounts.created) != 1 || accounts.created[0].Username != "quitter" {
 		t.Errorf("created = %v, want [quitter] — the name was treated as a quit", accounts.created)
 	}
 

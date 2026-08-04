@@ -11,7 +11,12 @@ ORDER BY u.id;
 SELECT * FROM users WHERE username = ?;
 
 -- name: CreateUser :one
-INSERT INTO users (username) VALUES (?) RETURNING *;
+INSERT INTO users (username, email) VALUES (?, ?) RETURNING *;
+
+-- name: ListUsersByEmail :many
+-- The cross-client counterpart of ListUsersByFingerprint: an address reaches
+-- every character the person holds. Callers pass a lowercased address.
+SELECT * FROM users WHERE email = ? ORDER BY id;
 
 -- name: LinkKeyToUser :exec
 -- Re-linking an already known pair is a no-op, so a returning player can sign

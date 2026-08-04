@@ -7,27 +7,33 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (username) VALUES (?) RETURNING id, username
+INSERT INTO users (username, email) VALUES (?, ?) RETURNING id, username, email
 `
 
-func (q *Queries) CreateUser(ctx context.Context, username string) (User, error) {
-	row := q.db.QueryRowContext(ctx, createUser, username)
+type CreateUserParams struct {
+	Username string         `json:"username"`
+	Email    sql.NullString `json:"email"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, createUser, arg.Username, arg.Email)
 	var i User
-	err := row.Scan(&i.ID, &i.Username)
+	err := row.Scan(&i.ID, &i.Username, &i.Email)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username FROM users WHERE username = ?
+SELECT id, username, email FROM users WHERE username = ?
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUserByUsername, username)
 	var i User
-	err := row.Scan(&i.ID, &i.Username)
+	err := row.Scan(&i.ID, &i.Username, &i.Email)
 	return i, err
 }
 
@@ -50,8 +56,37 @@ func (q *Queries) LinkKeyToUser(ctx context.Context, arg LinkKeyToUserParams) er
 	return err
 }
 
+const listUsersByEmail = `-- name: ListUsersByEmail :many
+SELECT id, username, email FROM users WHERE email = ? ORDER BY id
+`
+
+// The cross-client counterpart of ListUsersByFingerprint: an address reaches
+// every character the person holds. Callers pass a lowercased address.
+func (q *Queries) ListUsersByEmail(ctx context.Context, email sql.NullString) ([]User, error) {
+	rows, err := q.db.QueryContext(ctx, listUsersByEmail, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(&i.ID, &i.Username, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsersByFingerprint = `-- name: ListUsersByFingerprint :many
-SELECT u.id, u.username
+SELECT u.id, u.username, u.email
 FROM users u
 JOIN user_keys k ON k.user_id = u.id
 WHERE k.fingerprint = ?
@@ -69,7 +104,7 @@ func (q *Queries) ListUsersByFingerprint(ctx context.Context, fingerprint string
 	items := []User{}
 	for rows.Next() {
 		var i User
-		if err := rows.Scan(&i.ID, &i.Username); err != nil {
+		if err := rows.Scan(&i.ID, &i.Username, &i.Email); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

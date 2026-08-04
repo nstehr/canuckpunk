@@ -35,8 +35,19 @@ const commandPrompt = "> "
 
 type stateOutput struct {
 	text string
+	hint string
 	err  error
 }
+
+// stateWriter is what a state writes into. Implementing state.Hinter is how a
+// state tells the front end what it is waiting for.
+type stateWriter struct {
+	buf  bytes.Buffer
+	hint string
+}
+
+func (w *stateWriter) Write(p []byte) (int, error) { return w.buf.Write(p) }
+func (w *stateWriter) Hint(kind string)            { w.hint = kind }
 
 type choicesLoaded struct {
 	choices menu.Set
@@ -90,6 +101,7 @@ type model struct {
 	sm   *state.Machine
 
 	display Display
+	hint    string
 	profile string
 	width   int
 	height  int
@@ -182,11 +194,11 @@ func (m model) loadChoices() tea.Cmd {
 // States can block, so they run off the update loop.
 func (m model) runState(input string) tea.Cmd {
 	return func() tea.Msg {
-		var buf bytes.Buffer
+		var w stateWriter
 
-		err := m.sm.Next(m.ctx, input, &buf)
+		err := m.sm.Next(m.ctx, input, &w)
 
-		return stateOutput{text: buf.String(), err: err}
+		return stateOutput{text: w.buf.String(), hint: w.hint, err: err}
 	}
 }
 
@@ -204,7 +216,7 @@ func (m *model) resize() {
 	m.activity.SetWidth(g.bodyWidth(g.leftWidth))
 	m.activity.SetHeight(g.bodyHeight(bottomHeight))
 
-	m.input.SetWidth(g.commandInputWidth())
+	m.input.SetWidth(g.commandInputWidth(m.input.Prompt))
 	m.help.SetWidth(g.bodyWidth(m.width))
 	m.md.resize(g.bodyWidth(g.rightWidth), m.bg == themeDark)
 }
@@ -271,6 +283,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case stateOutput:
 		m.appendOutput(msg)
+		m.setPrompt(msg.hint)
 		m.refresh()
 		m.showLatestPassage()
 		m.activity.GotoBottom()
@@ -412,6 +425,27 @@ func (m *model) showLatestPassage() {
 	}
 
 	m.main.SetYOffset(m.offsets[len(m.offsets)-1])
+}
+
+// setPrompt shows what the current state is waiting for, so the player can see
+// it without re-reading the passage above.
+func (m *model) setPrompt(hint string) {
+	m.hint = hint
+	m.input.Prompt = m.promptFor(hint)
+
+	// The prompt just changed width, so the text area has to be resized with
+	// it or the line runs past the pane.
+	if g := m.geometry(); g.ok {
+		m.input.SetWidth(g.commandInputWidth(m.input.Prompt))
+	}
+}
+
+func (m model) promptFor(hint string) string {
+	if hint == "" {
+		return commandPrompt
+	}
+
+	return dimStyle.Render("("+hint+")") + " " + commandPrompt
 }
 
 func (m *model) note(text string) {

@@ -74,8 +74,10 @@ func (g geometry) commandContentOrigin() (x, y int) {
 	return g.leftWidth + 2, headerHeight + g.middleHeight + 2
 }
 
-func (g geometry) commandInputWidth() int {
-	return max(1, g.bodyWidth(g.rightWidth)-lipgloss.Width(commandPrompt))
+// The prompt is passed in because it grows when a state says what it is
+// waiting for.
+func (g geometry) commandInputWidth(prompt string) int {
+	return max(1, g.bodyWidth(g.rightWidth)-lipgloss.Width(prompt))
 }
 
 // The five regions:

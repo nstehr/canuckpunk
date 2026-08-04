@@ -53,13 +53,15 @@ func TestOpenFallsBackToTheEmbeddedCopy(t *testing.T) {
 		t.Errorf("Dir = %q, want empty for the embedded copy", store.Dir())
 	}
 
+	// Only that prose came back — the words themselves belong to whoever is
+	// writing them.
 	got, err := store.Read("onboarding/welcome.md")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 
-	if !strings.Contains(got, "Canuckpunk") {
-		t.Errorf("embedded welcome looks wrong: %q", got[:min(60, len(got))])
+	if strings.TrimSpace(got) == "" {
+		t.Error("embedded welcome is empty")
 	}
 }
 

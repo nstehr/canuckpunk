@@ -19,8 +19,8 @@ func (f fakeAccounts) ForCredential(context.Context, string) ([]user.User, error
 	return f.users, nil
 }
 
-func (f fakeAccounts) Create(_ context.Context, username, _, _ string) (user.User, error) {
-	return user.User{ID: 1, Username: username}, nil
+func (f fakeAccounts) Create(_ context.Context, a user.NewAccount) (user.User, error) {
+	return user.User{ID: 1, Username: a.Username, Email: a.Email}, nil
 }
 
 func ctxWithKey(t *testing.T) context.Context {

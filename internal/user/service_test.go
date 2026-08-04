@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	testEmail       = "player@example.ca"
+	testAuditor     = "auditor"
 	testFingerprint = "SHA256:abc"
 	testSurveyor    = "surveyor"
 	testKey         = "ssh-ed25519 AAAA"
@@ -62,7 +64,7 @@ func TestCreateThenLookUpByCredential(t *testing.T) {
 	svc := user.NewService(newDB(t))
 	fp := testFingerprint
 
-	created, err := svc.Create(t.Context(), testSurveyor, fp, testKey)
+	created, err := svc.Create(t.Context(), user.NewAccount{Username: testSurveyor, CredentialID: fp, Material: testKey})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -82,8 +84,8 @@ func TestOneCredentialManyAccounts(t *testing.T) {
 	svc := user.NewService(newDB(t))
 	fp := testFingerprint
 
-	for _, name := range []string{testSurveyor, "auditor", "inspector"} {
-		if _, err := svc.Create(t.Context(), name, fp, "ssh-ed25519 AAAA"); err != nil {
+	for _, name := range []string{testSurveyor, testAuditor, "inspector"} {
+		if _, err := svc.Create(t.Context(), user.NewAccount{Username: name, CredentialID: fp, Material: "ssh-ed25519 AAAA"}); err != nil {
 			t.Fatalf("Create(%s): %v", name, err)
 		}
 	}
@@ -93,7 +95,7 @@ func TestOneCredentialManyAccounts(t *testing.T) {
 		t.Fatalf("ForCredential: %v", err)
 	}
 
-	want := []string{testSurveyor, "auditor", "inspector"}
+	want := []string{testSurveyor, testAuditor, "inspector"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d accounts, want %d", len(got), len(want))
 	}
@@ -110,7 +112,7 @@ func TestOneCredentialManyAccounts(t *testing.T) {
 func TestManyCredentialsOneAccount(t *testing.T) {
 	svc := user.NewService(newDB(t))
 
-	created, err := svc.Create(t.Context(), testSurveyor, "SHA256:laptop", testKey)
+	created, err := svc.Create(t.Context(), user.NewAccount{Username: testSurveyor, CredentialID: "SHA256:laptop", Material: testKey})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestRelinkingTheSameCredentialIsANoop(t *testing.T) {
 	svc := user.NewService(newDB(t))
 	fp := testFingerprint
 
-	created, err := svc.Create(t.Context(), testSurveyor, fp, testKey)
+	created, err := svc.Create(t.Context(), user.NewAccount{Username: testSurveyor, CredentialID: fp, Material: testKey})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -154,14 +156,101 @@ func TestRelinkingTheSameCredentialIsANoop(t *testing.T) {
 	}
 }
 
-func TestDuplicateUsernameIsRejected(t *testing.T) {
+// The cross-client story: one address reaches every character the person
+// holds, mirroring one credential reaching many accounts.
+func TestOneEmailManyAccounts(t *testing.T) {
 	svc := user.NewService(newDB(t))
 
-	if _, err := svc.Create(t.Context(), testSurveyor, "SHA256:a", testKey); err != nil {
+	for _, name := range []string{testSurveyor, testAuditor} {
+		_, err := svc.Create(t.Context(), user.NewAccount{
+			Username: name, Email: testEmail,
+			CredentialID: testFingerprint, Material: testKey,
+		})
+		if err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
+		}
+	}
+
+	got, err := svc.ForEmail(t.Context(), testEmail)
+	if err != nil {
+		t.Fatalf("ForEmail: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d accounts, want 2 — an address must not be exclusive", len(got))
+	}
+}
+
+// Addresses are stored and matched in one form, so casing at signup does not
+// strand the account.
+func TestEmailLookupIgnoresCase(t *testing.T) {
+	svc := user.NewService(newDB(t))
+
+	created, err := svc.Create(t.Context(), user.NewAccount{
+		Username: testSurveyor, Email: "  Player@Example.CA ",
+		CredentialID: testFingerprint, Material: testKey,
+	})
+	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	_, err := svc.Create(t.Context(), testSurveyor, "SHA256:b", testKey)
+	if created.Email != testEmail {
+		t.Errorf("stored email = %q, want it normalised", created.Email)
+	}
+
+	for _, lookup := range []string{testEmail, "PLAYER@EXAMPLE.CA", " Player@Example.ca "} {
+		got, err := svc.ForEmail(t.Context(), lookup)
+		if err != nil {
+			t.Fatalf("ForEmail(%q): %v", lookup, err)
+		}
+
+		if len(got) != 1 || got[0].ID != created.ID {
+			t.Errorf("ForEmail(%q) found %v, want the account", lookup, got)
+		}
+	}
+}
+
+// Email is optional, and blank must not collide with other blanks.
+func TestAccountsWithoutEmail(t *testing.T) {
+	svc := user.NewService(newDB(t))
+
+	for _, name := range []string{testSurveyor, testAuditor} {
+		if _, err := svc.Create(t.Context(), user.NewAccount{
+			Username: name, CredentialID: testFingerprint, Material: testKey,
+		}); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
+		}
+	}
+
+	got, err := svc.ForCredential(t.Context(), testFingerprint)
+	if err != nil {
+		t.Fatalf("ForCredential: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d accounts, want 2", len(got))
+	}
+
+	for _, u := range got {
+		if u.Email != "" {
+			t.Errorf("%s has email %q, want none", u.Username, u.Email)
+		}
+	}
+
+	// A blank lookup must not sweep up every account that skipped the step.
+	if found, _ := svc.ForEmail(t.Context(), ""); len(found) != 0 {
+		t.Errorf("blank address matched %d accounts", len(found))
+	}
+}
+
+func TestDuplicateUsernameIsRejected(t *testing.T) {
+	svc := user.NewService(newDB(t))
+
+	if _, err := svc.Create(t.Context(), user.NewAccount{Username: testSurveyor, CredentialID: "SHA256:a", Material: testKey}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err := svc.Create(t.Context(), user.NewAccount{Username: testSurveyor, CredentialID: "SHA256:b", Material: testKey})
 	if !errors.Is(err, user.ErrUsernameTaken) {
 		t.Fatalf("err = %v, want ErrUsernameTaken", err)
 	}
