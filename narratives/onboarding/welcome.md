@@ -4,7 +4,7 @@
 
 Welcome to Canada | Bienvenue au Canada 🇨🇦
 
-This isn't the Canada of your parents or their prime ministers. Imagine a Canada over 300 years 
+This isn't the Canada of your parents or their prime ministers. Imagine a Canada hundreds of years 
 in the future where the institutions from the birth of the nation never waned. Instead, they continued
 to grow and grow.
 
