@@ -70,6 +70,14 @@ func askName(accounts Accounts, prose Narratives) state.Fn {
 			return nil, writeOrientation(out, prose)
 		}
 
+		if name := strings.TrimSpace(input); len([]rune(name)) > MaxUsername {
+			_, werr := fmt.Fprintf(out,
+				"That name is too long for the Registry's forms. "+
+					"Use %d characters or fewer.", MaxUsername)
+
+			return ask, werr
+		}
+
 		return askEmail(accounts, prose, input), writeEmailPrompt(out)
 	}
 

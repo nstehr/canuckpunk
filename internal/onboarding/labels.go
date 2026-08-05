@@ -51,6 +51,11 @@ const (
 	HintEmail = "email"
 )
 
+// MaxUsername bounds a name so every front end can render it. Discord caps a
+// button label at 80 characters and "Continue as " eats into that, which is
+// the tightest constraint any client puts on it.
+const MaxUsername = 40
+
 // SkipEmail is what a player types to decline the optional address. Enter on
 // an empty line cannot mean this: a blank submission never reaches a state.
 const SkipEmail = "skip"

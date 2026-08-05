@@ -414,6 +414,31 @@ func TestBadEmailIsRejectedAndRetryable(t *testing.T) {
 	}
 }
 
+// A name has to be renderable on a button, so it is bounded where it is
+// entered rather than only where it is displayed.
+func TestOverlongNameIsRejectedAndRetryable(t *testing.T) {
+	accounts := &fakeAccounts{}
+	m := boot(t, newTestModel(t, 100, 30, accounts))
+	m = enter(t, typeIn(t, m, onboarding.LabelCreateUser))
+	m = enter(t, typeIn(t, m, strings.Repeat("z", onboarding.MaxUsername+1)))
+
+	if len(accounts.created) != 0 {
+		t.Fatalf("an over-long name was accepted: %+v", accounts.created)
+	}
+
+	if joined := strings.Join(m.content, "\n"); !strings.Contains(joined, "too long") {
+		t.Errorf("no rejection notice:\n%s", joined)
+	}
+
+	// Still on the same question, and a reasonable name goes through.
+	m = enter(t, typeIn(t, m, testSurveyor))
+	m = enter(t, typeIn(t, m, onboarding.SkipEmail))
+
+	if len(accounts.created) != 1 || accounts.created[0].Username != testSurveyor {
+		t.Errorf("retry did not take: %+v", accounts.created)
+	}
+}
+
 func TestUnknownInputIsRejectedWithoutLeavingTheMenu(t *testing.T) {
 	m := boot(t, newTestModel(t, 100, 30, &fakeAccounts{}))
 	m = enter(t, typeIn(t, m, "wander off"))
