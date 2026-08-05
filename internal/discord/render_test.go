@@ -91,6 +91,64 @@ func TestChoiceIDRoundTrip(t *testing.T) {
 	}
 }
 
+// One player with a very long name must not make the opening screen fail to
+// send for them. Discord rejects the whole message if a label is over length.
+func TestLongLabelsAreClipped(t *testing.T) {
+	long := strings.Repeat("z", 500)
+
+	for _, set := range []menu.Set{
+		{{ID: "continue:1", Label: "Continue as " + long}},
+		func() menu.Set { // enough entries to become a select menu
+			out := make(menu.Set, 0, maxButtons+2)
+			for i := range maxButtons + 2 {
+				out = append(out, menu.Choice{ID: string(rune('a' + i)), Label: long})
+			}
+
+			return out
+		}(),
+	} {
+		for _, layout := range components(set) {
+			row, ok := layout.(discord.ActionRowComponent)
+			if !ok {
+				t.Fatalf("unexpected layout %T", layout)
+			}
+
+			for component := range row.SubComponents() {
+				switch c := component.(type) {
+				case discord.ButtonComponent:
+					if n := len([]rune(c.Label)); n > maxButtonLabel {
+						t.Errorf("button label is %d runes, over %d", n, maxButtonLabel)
+					}
+				case discord.StringSelectMenuComponent:
+					for _, o := range c.Options {
+						if n := len([]rune(o.Label)); n > maxOptionLabel {
+							t.Errorf("option label is %d runes, over %d", n, maxOptionLabel)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// Clipping is display only: the id still resolves the choice.
+func TestClippingLeavesTheIDIntact(t *testing.T) {
+	id := "continue:7"
+	rows := components(menu.Set{{ID: id, Label: strings.Repeat("z", 500)}})
+
+	row, ok := rows[0].(discord.ActionRowComponent)
+	if !ok {
+		t.Fatalf("unexpected layout %T", rows[0])
+	}
+
+	for component := range row.SubComponents() {
+		button, isButton := component.(discord.ButtonComponent)
+		if isButton && choiceID(strings.TrimPrefix(button.CustomID, choiceRoute)) != id {
+			t.Errorf("custom_id lost the choice: %q", button.CustomID)
+		}
+	}
+}
+
 func TestComponentsUsesButtonsThenSelect(t *testing.T) {
 	set := func(n int) menu.Set {
 		out := make(menu.Set, 0, n)

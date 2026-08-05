@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nstehr/canuckpunk/internal/menu"
 	"github.com/nstehr/canuckpunk/internal/session"
 	"github.com/nstehr/canuckpunk/internal/state"
 )
@@ -21,6 +22,22 @@ type conversation struct {
 	machine *state.Machine
 	session session.UserSession
 	touched time.Time
+
+	// What the player is currently being offered. Discord messages outlive
+	// the screen they were sent for, so a button is only honoured while its
+	// choice is still on the table.
+	offered menu.Set
+}
+
+// offers reports whether a choice is one the conversation is currently
+// waiting on.
+func (c *conversation) offers(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, ok := c.offered.ByID(id)
+
+	return ok
 }
 
 // conversations is the set of players currently mid-flow, keyed by Discord

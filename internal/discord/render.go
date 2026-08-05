@@ -15,6 +15,8 @@ const (
 	maxMessageRunes = 1900
 	maxButtons      = 5
 	maxSelectItems  = 25
+	maxButtonLabel  = 80
+	maxOptionLabel  = 100
 )
 
 // Choice IDs are routed like paths, so the adapter wraps them rather than
@@ -40,6 +42,19 @@ func choiceID(escaped string) string {
 // choiceFromValue reverses the value stored on a select menu option.
 func choiceFromValue(value string) string {
 	return choiceID(strings.TrimPrefix(value, choiceRoute))
+}
+
+// clip keeps a label inside Discord's limit. Over-long labels are rejected for
+// the whole message, so one player with a long name would otherwise make the
+// opening screen fail to send. The id is untouched, so the choice still
+// resolves.
+func clip(label string, limit int) string {
+	runes := []rune(label)
+	if len(runes) <= limit {
+		return label
+	}
+
+	return string(runes[:limit-1]) + "…"
 }
 
 // chunk splits markdown to fit Discord's message limit, preferring paragraph
@@ -133,7 +148,8 @@ func components(choices menu.Set) []discord.LayoutComponent {
 	if len(choices) <= maxButtons {
 		buttons := make([]discord.InteractiveComponent, 0, len(choices))
 		for _, c := range choices {
-			buttons = append(buttons, discord.NewSecondaryButton(c.Label, choiceCustomID(c.ID)))
+			buttons = append(buttons,
+				discord.NewSecondaryButton(clip(c.Label, maxButtonLabel), choiceCustomID(c.ID)))
 		}
 
 		return []discord.LayoutComponent{discord.NewActionRow(buttons...)}
@@ -141,7 +157,8 @@ func components(choices menu.Set) []discord.LayoutComponent {
 
 	options := make([]discord.StringSelectMenuOption, 0, len(choices))
 	for _, c := range choices {
-		options = append(options, discord.NewStringSelectMenuOption(c.Label, choiceCustomID(c.ID)))
+		options = append(options,
+			discord.NewStringSelectMenuOption(clip(c.Label, maxOptionLabel), choiceCustomID(c.ID)))
 	}
 
 	return []discord.LayoutComponent{

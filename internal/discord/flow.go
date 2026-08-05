@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/nstehr/canuckpunk/internal/menu"
@@ -53,7 +54,30 @@ func (b *Bot) advance(ctx context.Context, c *conversation, input string) (scree
 		s.choices = choices
 	}
 
+	// Whatever this turn offers is what a button may act on until the next
+	// turn replaces it.
+	c.offered = s.choices
+
 	return s, nil
+}
+
+// click runs a choice the player pressed.
+//
+// Clearing the buttons on click is not enough on its own: a player who types
+// the label instead leaves the row live, and the flow has moved on by the time
+// they press it. Feeding that id in as input would make "create-user" the
+// username. So a button only reaches the machine while its choice is still
+// being offered; anything older reopens the current screen instead.
+func (b *Bot) click(ctx context.Context, c *conversation, id string) (screen, error) {
+	if c.offers(id) {
+		return b.advance(ctx, c, id)
+	}
+
+	slog.Info("ignoring a stale choice", "choice", id)
+
+	// An empty input re-runs the current state, which reprints whatever the
+	// player is actually being asked.
+	return b.advance(ctx, c, "")
 }
 
 // global handles the words that work anywhere, returning false when the line

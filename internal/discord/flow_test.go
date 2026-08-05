@@ -216,6 +216,58 @@ func TestGlobalCommands(t *testing.T) {
 	}
 }
 
+// Typing a label leaves the buttons on screen. Clicking one afterwards must
+// not be fed to a state that is asking for something else — otherwise the
+// choice id becomes the username.
+func TestStaleButtonAfterTypingIsIgnored(t *testing.T) {
+	accounts := &fakeAccounts{}
+	b := newTestBot(t, accounts)
+
+	turn(t, b, "")                         // opening screen; buttons shown
+	turn(t, b, onboarding.LabelCreateUser) // typed, so the row stays live on screen
+
+	// The player now presses the button that is still sitting above.
+	c := b.convos.get(testPlayer, playerSession())
+
+	stale, err := b.click(t.Context(), c, onboarding.IDCreateUser)
+	if err != nil {
+		t.Fatalf("click: %v", err)
+	}
+
+	// It should have re-asked the current question, not consumed the id.
+	if stale.hint != onboarding.HintName {
+		t.Errorf("hint = %q, want the name prompt to be repeated", stale.hint)
+	}
+
+	turn(t, b, "beaver")
+	turn(t, b, onboarding.SkipEmail)
+
+	if len(accounts.created) != 1 {
+		t.Fatalf("created %d accounts: %+v", len(accounts.created), accounts.created)
+	}
+
+	if got := accounts.created[0].Username; got != "beaver" {
+		t.Errorf("username = %q, want beaver — a stale button was taken as input", got)
+	}
+}
+
+// A live button still works, which is what the guard must not break.
+func TestLiveButtonIsHonoured(t *testing.T) {
+	b := newTestBot(t, &fakeAccounts{})
+	turn(t, b, "")
+
+	c := b.convos.get(testPlayer, playerSession())
+
+	s, err := b.click(t.Context(), c, onboarding.IDCreateUser)
+	if err != nil {
+		t.Fatalf("click: %v", err)
+	}
+
+	if s.hint != onboarding.HintName {
+		t.Errorf("hint = %q, want the flow to have advanced to the name", s.hint)
+	}
+}
+
 // A button clicked long after its conversation expired must restart the flow
 // rather than fail: Discord messages outlive sessions.
 func TestStaleInteractionRestarts(t *testing.T) {
